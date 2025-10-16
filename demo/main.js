@@ -48,7 +48,9 @@ function renderExpr(expr, ctx) {
   const d = DIALECTS[ctx.dialect];
   switch (expr?.kind) {
     case 'col': {
-      const prefix = expr.tableAlias ? d.quoteId(expr.tableAlias) + '.' : '';
+      const inferredAlias = expr.tableAlias
+        ?? (expr.tableName ? (ctx.aliasByTableName?.[expr.tableName] ?? expr.tableName) : undefined);
+      const prefix = inferredAlias ? d.quoteId(inferredAlias) + '.' : '';
       return prefix + d.quoteId(expr.name);
     }
     case 'val': {
@@ -74,7 +76,15 @@ function renderExpr(expr, ctx) {
 function toSql(select, dialect) {
   const d = DIALECTS[dialect];
   const params = [];
-  const ctx = { dialect, params };
+  // Build table name -> alias mapping (alias fallback to table name)
+  const aliasByTableName = {};
+  if (select?.from?.name) {
+    aliasByTableName[select.from.name] = select.from.alias || select.from.name;
+  }
+  for (const j of (select.joins || [])) {
+    if (j?.name) aliasByTableName[j.name] = j.alias || j.name;
+  }
+  const ctx = { dialect, params, aliasByTableName };
 
   const columns = (select.columns || []).map(c => {
     const sql = renderExpr(c.expr, ctx);
@@ -188,7 +198,7 @@ function buildColumnPicker(tableSelectId, aliasInputId) {
 
   return { el: container, read() {
     return {
-      expr: { kind: 'col', tableAlias: undefined, name: colSel.value, table: tableSel.value },
+      expr: { kind: 'col', tableAlias: undefined, tableName: tableSel.value, name: colSel.value },
       alias: aliasIn.value || undefined,
       table: tableSel.value,
     };
@@ -251,7 +261,7 @@ function buildJoinRow() {
       schema: undefined,
       name: tableSel.value,
       alias: aliasIn.value || undefined,
-      on: { kind: 'bin', op: '=', left: { kind: 'col', tableAlias: undefined, name: lCol.value, tableAliasName: lTable.value }, right: { kind: 'col', tableAlias: undefined, name: rCol.value, tableAliasName: rTable.value } },
+      on: { kind: 'bin', op: '=', left: { kind: 'col', tableAlias: undefined, tableName: lTable.value, name: lCol.value }, right: { kind: 'col', tableAlias: undefined, tableName: rTable.value, name: rCol.value } },
     };
   }};
 }
@@ -290,7 +300,7 @@ function buildFilterRow() {
     return {
       kind: 'bin',
       op: opSel.value,
-      left: { kind: 'col', tableAlias: undefined, name: colSel.value, table: tableSel.value },
+      left: { kind: 'col', tableAlias: undefined, tableName: tableSel.value, name: colSel.value },
       right: { kind: 'val', value },
     };
   }};
